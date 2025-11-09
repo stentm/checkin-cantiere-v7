@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Check-in Cantiere v7</title>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    body {font-family: Arial, sans-serif; background: #f2f2f2; padding:20px;}
+    #reader {width:100%; height:320px; background:#000; margin-top:10px;}
+    .hidden {display:none;}
+    .btn {padding:12px; margin-top:10px; width:100%; font-size:16px;}
+    .entry {background:#28a745; color:#fff;}
+    .exit {background:#dc3545; color:#fff;}
+  </style>
+</head>
+<body>
+  <h2>Registrazione Presenza</h2>
+  <div id="scanArea">
+    <button id="startScan" class="btn" style="background:#007bff;color:#fff;">Avvia scansione QR</button>
+    <div id="reader"></div>
+    <p id="scanMsg"></p>
+  </div>
+
+  <div id="formArea" class="hidden">
+    <label>Cantiere</label>
+    <input id="cantiere" readonly/>
+
+    <label>Nome</label>
+    <input id="nome"/>
+
+    <label>Azienda</label>
+    <input id="azienda"/>
+
+    <button id="btnEntrata" class="btn entry">Entrata</button>
+    <button id="btnUscita" class="btn exit">Uscita</button>
+  </div>
+
+  <p id="error" style="color:red;"></p>
+  <p id="success" style="color:green;"></p>
+
+<script>
+let html5QrCode;
+let lastCantiere = null;
+const API_ENDPOINT = "/api/save";
+
+function show(id){document.getElementById(id).classList.remove("hidden");}
+function hide(id){document.getElementById(id).classList.add("hidden");}
+function set(id,txt){document.getElementById(id).innerText=txt;}
+
+function handleQr(text){
+  let cantiere = null;
+  try{
+    const obj = JSON.parse(text);
+    if(obj.cantiere) cantiere = obj.cantiere;
+  }catch(e){
+    try{
+      const u = new URL(text);
+      cantiere = u.searchParams.get("cantiere");
+    }catch(e2){
+      cantiere = text;
+    }
+  }
+  if(!cantiere){
+    set("error","QR non valido");
+    return;
+  }
+  cantiere = cantiere.trim().toUpperCase();
+  lastCantiere = cantiere;
+  document.getElementById("cantiere").value = cantiere;
+  hide("scanArea");
+  show("formArea");
+}
+
+async function startCameraScan(){
+  set("error",""); set("success","");
+  html5QrCode = new Html5Qrcode("reader");
+  try{
+    await html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: 250 },
+      (decodedText)=>{
+        html5QrCode.stop().then(()=>{
+          handleQr(decodedText);
+        });
+      }
+    );
+    set("scanMsg","Inquadra il QR...");
+  }catch(e){
+    set("error","Errore fotocamera: "+e);
+  }
+}
+
+async function send(azione){
+  const nome = document.getElementById("nome").value.trim();
+  const azienda = document.getElementById("azienda").value.trim();
+  const cantiere = lastCantiere;
+  if(!nome || !azienda){set("error","Compila tutti i campi");return;}
+  const now = new Date();
+  const payload = {
+    data: now.toLocaleDateString("it-IT"),
+    ora: now.toLocaleTimeString("it-IT"),
+    nome, azienda, cantiere, azione
+  };
+  try{
+    const res = await fetch(API_ENDPOINT, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+    if(!res.ok) throw new Error(await res.text());
+    set("success","Registrato!");
+  }catch(e){
+    set("error","Errore: "+e.message);
+  }
+}
+
+document.getElementById("startScan").onclick = startCameraScan;
+document.getElementById("btnEntrata").onclick = ()=>send("ENTRATA");
+document.getElementById("btnUscita").onclick = ()=>send("USCITA");
+</script>
+</body>
+</html>
